@@ -1,0 +1,296 @@
+paths:
+  /api/products:
+    get:
+      tags:
+        - Products
+      summary: Daftar produk
+      description: |
+        Mengambil daftar produk aktif dengan dukungan **filtering**, **pencarian**, **pengurutan**, dan **paginasi**.
+
+        ### Query Parameters
+        | Parameter | Tipe | Default | Keterangan |
+        |---|---|---|---|
+        | `category` | string | - | Filter berdasarkan slug kategori (contoh: `sayuran`) |
+        | `search` | string | - | Pencarian di nama dan deskripsi produk |
+        | `sort` | string | `createdAt` | Urutan: `createdAt`, `price_asc`, `price_desc` |
+        | `page` | integer | `1` | Halaman saat ini |
+        | `limit` | integer | `12` | Jumlah item per halaman |
+      operationId: getProducts
+      parameters:
+        - in: query
+          name: category
+          schema:
+            type: string
+          description: Slug kategori (contoh `sayuran`, `buah-buahan`, `hasil-laut`, `rempah-rempah`)
+          example: sayuran
+        - in: query
+          name: search
+          schema:
+            type: string
+          description: Kata kunci pencarian
+          example: tomat
+        - in: query
+          name: sort
+          schema:
+            type: string
+            enum: [createdAt, price_asc, price_desc]
+            default: createdAt
+          description: Metode pengurutan
+        - in: query
+          name: page
+          schema:
+            type: integer
+            default: 1
+            minimum: 1
+          description: Nomor halaman
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 12
+            minimum: 1
+            maximum: 100
+          description: Jumlah produk per halaman
+      responses:
+        '200':
+          description: Daftar produk berhasil diambil
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Product'
+                  meta:
+                    $ref: '#/components/schemas/ProductMeta'
+              example:
+                success: true
+                data:
+                  - id: clxprod001
+                    name: Tomat Segar
+                    slug: tomat-segar
+                    price: 15000
+                    stock: 500
+                    unit: kg
+                    imageUrl: "https://images.unsplash.com/photo-xxx"
+                    isActive: true
+                    category:
+                      name: Sayuran
+                      slug: sayuran
+                meta:
+                  total: 10
+                  page: 1
+                  limit: 12
+                  totalPages: 1
+
+    post:
+      tags:
+        - Products
+      summary: Tambah produk baru (Admin)
+      description: Menambahkan produk baru ke katalog. **Hanya Admin.**
+      operationId: createProduct
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+                - slug
+                - price
+                - stock
+                - categoryId
+              properties:
+                name:
+                  type: string
+                  example: Kangkung Segar
+                slug:
+                  type: string
+                  example: kangkung-segar
+                description:
+                  type: string
+                  example: Kangkung segar dipetik pagi hari
+                price:
+                  type: number
+                  example: 5000
+                stock:
+                  type: integer
+                  example: 300
+                unit:
+                  type: string
+                  example: ikat
+                  default: kg
+                imageUrl:
+                  type: string
+                  example: "https://images.unsplash.com/photo-xxx"
+                categoryId:
+                  type: string
+                  example: clx5678efgh
+                isActive:
+                  type: boolean
+                  default: true
+      responses:
+        '201':
+          description: Produk berhasil dibuat
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/Product'
+        '400':
+          description: Validasi gagal
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '403':
+          description: Bukan Admin
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/products/{slug}:
+    get:
+      tags:
+        - Products
+      summary: Detail produk
+      description: Mengambil detail satu produk berdasarkan slug-nya.
+      operationId: getProductBySlug
+      parameters:
+        - in: path
+          name: slug
+          required: true
+          schema:
+            type: string
+          description: Slug produk
+          example: tomat-segar
+      responses:
+        '200':
+          description: Detail produk berhasil diambil
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/Product'
+        '404':
+          description: Produk tidak ditemukan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                message: Produk tidak ditemukan
+
+  /api/products/{id}:
+    put:
+      tags:
+        - Products
+      summary: Update produk (Admin)
+      description: Memperbarui data produk. Semua field bersifat opsional (partial update). **Hanya Admin.**
+      operationId: updateProduct
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: ID produk
+          example: clxprod001
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                price:
+                  type: number
+                stock:
+                  type: integer
+                unit:
+                  type: string
+                description:
+                  type: string
+                imageUrl:
+                  type: string
+                isActive:
+                  type: boolean
+            example:
+              price: 18000
+              stock: 450
+      responses:
+        '200':
+          description: Produk berhasil diupdate
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/Product'
+        '403':
+          description: Bukan Admin
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    delete:
+      tags:
+        - Products
+      summary: Hapus produk (Admin)
+      description: Menonaktifkan produk (soft delete — produk tidak benar-benar dihapus). **Hanya Admin.**
+      operationId: deleteProduct
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: ID produk
+          example: clxprod001
+      responses:
+        '200':
+          description: Produk berhasil dinonaktifkan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+              example:
+                success: true
+                message: Produk berhasil dihapus
+        '403':
+          description: Bukan Admin
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'

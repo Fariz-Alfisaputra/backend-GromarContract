@@ -1,0 +1,137 @@
+paths:
+  /api/payment/webhook:
+    post:
+      tags:
+        - Payment
+      summary: Webhook notifikasi Midtrans
+      description: |
+        Endpoint yang dipanggil otomatis oleh **server Midtrans** saat status pembayaran berubah.
+
+        > ⚠️ **Jangan panggil endpoint ini secara manual di production.** Endpoint ini didesain khusus untuk menerima notifikasi dari server Midtrans.
+
+        ### Cara Kerja
+        1. User melakukan pembayaran di Midtrans Snap
+        2. Midtrans mengirim POST request ke endpoint ini dengan data transaksi
+        3. Backend memverifikasi notifikasi ke Midtrans API
+        4. Status order di database diperbarui secara otomatis
+
+        ### Mapping Status
+        | Midtrans Status | Order Status |
+        |---|---|
+        | `capture` (fraud: `accept`) | `PAID` |
+        | `settlement` | `PAID` |
+        | `cancel` / `deny` / `expire` | `CANCELLED` |
+        | `pending` | `PENDING` |
+
+        ### Setup Webhook di Midtrans
+        Di Midtrans Dashboard → **Settings** → **Configuration** → **Payment Notification URL**:
+        ```
+        https://your-domain.com/api/payment/webhook
+        ```
+        Untuk development lokal, gunakan [ngrok](https://ngrok.com):
+        ```bash
+        ngrok http 5000
+        # Gunakan URL ngrok sebagai webhook URL
+        ```
+      operationId: handleWebhook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Payload notifikasi dari Midtrans
+              properties:
+                order_id:
+                  type: string
+                  example: clxorder321
+                transaction_status:
+                  type: string
+                  enum: [capture, settlement, cancel, deny, expire, pending, refund]
+                  example: settlement
+                fraud_status:
+                  type: string
+                  enum: [accept, challenge, deny]
+                  example: accept
+                payment_type:
+                  type: string
+                  example: gopay
+                transaction_id:
+                  type: string
+                  example: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+                gross_amount:
+                  type: string
+                  example: "75000.00"
+      responses:
+        '200':
+          description: Webhook berhasil diproses
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+              example:
+                success: true
+                message: Notification processed
+        '500':
+          description: Error saat memproses webhook
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/payment/snap-token/{orderId}:
+    get:
+      tags:
+        - Payment
+      summary: Ambil Snap token untuk order
+      description: |
+        Mengambil Midtrans Snap token untuk order yang sudah dibuat.
+        Berguna jika user menutup popup pembayaran dan ingin membayar ulang.
+
+        Gunakan token ini dengan Midtrans Snap.js:
+        ```javascript
+        window.snap.pay(snapToken, {
+          onSuccess: (result) => { ... },
+          onPending: (result) => { ... },
+          onError: (result) => { ... },
+          onClose: () => { ... }
+        })
+        ```
+      operationId: getSnapToken
+      parameters:
+        - in: path
+          name: orderId
+          required: true
+          schema:
+            type: string
+          description: ID order yang ingin dibayar
+          example: clxorder321
+      responses:
+        '200':
+          description: Snap token berhasil diambil
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      snapToken:
+                        type: string
+                        example: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+                      paymentUrl:
+                        type: string
+                        example: "https://app.sandbox.midtrans.com/snap/v3/redirection/a1b2c3d4..."
+        '404':
+          description: Order atau token tidak ditemukan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                message: Order atau token tidak ditemukan

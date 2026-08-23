@@ -1,0 +1,241 @@
+paths:
+  /api/orders:
+    post:
+      tags:
+        - Orders
+      summary: Buat order baru (Checkout)
+      description: |
+        Membuat order dari semua item di keranjang belanja.
+
+        **Proses yang terjadi secara otomatis:**
+        1. ✅ Validasi stok semua produk
+        2. ✅ Membuat record Order + OrderItems di database
+        3. ✅ Mengurangi stok produk
+        4. ✅ Mengosongkan keranjang belanja
+        5. ✅ Membuat **Midtrans Snap Token** untuk pembayaran
+        6. ✅ Mengembalikan `snapToken` dan `paymentUrl`
+
+        Gunakan `snapToken` di frontend dengan library **Midtrans Snap.js** untuk menampilkan popup pembayaran.
+      operationId: createOrder
+      security:
+        - BearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                notes:
+                  type: string
+                  description: Catatan tambahan untuk pesanan (opsional)
+                  example: Tolong kirim pagi hari sebelum jam 9
+            example:
+              notes: Tolong kirim pagi hari
+      responses:
+        '201':
+          description: Order berhasil dibuat dan Snap token dihasilkan
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      order:
+                        $ref: '#/components/schemas/Order'
+                      snapToken:
+                        type: string
+                        example: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+                        description: Token untuk Midtrans Snap.js
+                      paymentUrl:
+                        type: string
+                        example: "https://app.sandbox.midtrans.com/snap/v3/redirection/a1b2c3d4..."
+                        description: URL redirect ke halaman pembayaran Midtrans
+        '400':
+          description: Keranjang kosong atau stok tidak cukup
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                emptyCart:
+                  summary: Keranjang kosong
+                  value:
+                    success: false
+                    message: Keranjang belanja kosong
+                stockInsufficient:
+                  summary: Stok tidak cukup
+                  value:
+                    success: false
+                    message: "Stok Tomat Segar tidak cukup. Tersedia: 3"
+
+    get:
+      tags:
+        - Orders
+      summary: Daftar order user
+      description: Mengambil semua order milik user yang sedang login, diurutkan dari terbaru.
+      operationId: getOrders
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Daftar order berhasil diambil
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Order'
+
+  /api/orders/all:
+    get:
+      tags:
+        - Orders
+      summary: Semua order (Admin)
+      description: Mengambil **semua** order dari semua user. **Hanya Admin.**
+      operationId: getAllOrders
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Semua order berhasil diambil
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      allOf:
+                        - $ref: '#/components/schemas/Order'
+                        - type: object
+                          properties:
+                            user:
+                              type: object
+                              properties:
+                                name:
+                                  type: string
+                                email:
+                                  type: string
+        '403':
+          description: Bukan Admin
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/orders/{id}:
+    get:
+      tags:
+        - Orders
+      summary: Detail order
+      description: Mengambil detail satu order milik user yang sedang login.
+      operationId: getOrderById
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: ID order
+          example: clxorder321
+      responses:
+        '200':
+          description: Detail order berhasil diambil
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/Order'
+        '404':
+          description: Order tidak ditemukan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/orders/{id}/status:
+    patch:
+      tags:
+        - Orders
+      summary: Update status order (Admin)
+      description: |
+        Memperbarui status pesanan. **Hanya Admin.**
+
+        ### Status Flow
+        ```
+        PENDING → PAID → PROCESSING → SHIPPED → DELIVERED
+             ↘ CANCELLED (bisa dari PENDING atau PAID)
+        ```
+      operationId: updateOrderStatus
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: ID order
+          example: clxorder321
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - status
+              properties:
+                status:
+                  type: string
+                  enum: [PENDING, PAID, PROCESSING, SHIPPED, DELIVERED, CANCELLED]
+                  example: PROCESSING
+            example:
+              status: PROCESSING
+      responses:
+        '200':
+          description: Status order berhasil diupdate
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/Order'
+        '400':
+          description: Status tidak valid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Bukan Admin
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'

@@ -1,0 +1,28 @@
+paths:
+  /api/health:
+    get:
+      tags:
+        - Health
+      summary: Server health check
+      description: Cek apakah API server berjalan dengan normal.
+      operationId: healthCheck
+      responses:
+        '200':
+          description: Server berjalan normal
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Gromar API is running 🚀"
+                  timestamp:
+                    type: string
+                    format: date-time
+                  env:
+                    type: string
+                    example: development

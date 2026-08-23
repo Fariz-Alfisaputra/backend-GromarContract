@@ -1,0 +1,109 @@
+paths:
+  /api/categories:
+    get:
+      tags:
+        - Categories
+      summary: Daftar semua kategori
+      description: Mengambil semua kategori produk beserta jumlah produk aktif di setiap kategori.
+      operationId: getCategories
+      responses:
+        '200':
+          description: Daftar kategori berhasil diambil
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Category'
+              example:
+                success: true
+                data:
+                  - id: clx111
+                    name: Sayuran
+                    slug: sayuran
+                    _count:
+                      products: 4
+                  - id: clx222
+                    name: Buah-buahan
+                    slug: buah-buahan
+                    _count:
+                      products: 2
+                  - id: clx333
+                    name: Hasil Laut
+                    slug: hasil-laut
+                    _count:
+                      products: 2
+                  - id: clx444
+                    name: Rempah-rempah
+                    slug: rempah-rempah
+                    _count:
+                      products: 2
+
+    post:
+      tags:
+        - Categories
+      summary: Tambah kategori baru (Admin)
+      description: Menambahkan kategori produk baru. **Hanya Admin** yang bisa mengakses endpoint ini.
+      operationId: createCategory
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+                - slug
+              properties:
+                name:
+                  type: string
+                  example: Biji-bijian
+                slug:
+                  type: string
+                  example: biji-bijian
+                  description: Harus unik, lowercase, dan dipisahkan dengan tanda hubung
+            example:
+              name: Biji-bijian
+              slug: biji-bijian
+      responses:
+        '201':
+          description: Kategori berhasil dibuat
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/Category'
+        '400':
+          description: Slug sudah digunakan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Tidak ada token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Bukan Admin
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                message: "Akses ditolak. Hanya admin yang diizinkan."

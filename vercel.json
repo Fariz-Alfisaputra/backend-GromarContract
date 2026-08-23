@@ -1,0 +1,17 @@
+{
+  "version": 2,
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "/api/index.ts"
+    },
+    {
+      "src": "/api-docs",
+      "dest": "/api/index.ts"
+    },
+    {
+      "src": "/api-docs.json",
+      "dest": "/api/index.ts"
+    }
+  ]
+}

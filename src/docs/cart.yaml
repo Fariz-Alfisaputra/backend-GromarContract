@@ -1,0 +1,220 @@
+paths:
+  /api/cart:
+    get:
+      tags:
+        - Cart
+      summary: Lihat keranjang belanja
+      description: Mengambil semua item di keranjang user yang sedang login, beserta total harga.
+      operationId: getCart
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Data keranjang berhasil diambil
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/CartResponse'
+              example:
+                success: true
+                data:
+                  items:
+                    - id: clxcart789
+                      quantity: 2
+                      product:
+                        id: clxprod001
+                        name: Tomat Segar
+                        price: 15000
+                        unit: kg
+                        stock: 500
+                        imageUrl: "https://images.unsplash.com/photo-xxx"
+                  total: 30000
+                  count: 1
+        '401':
+          description: Token tidak valid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    post:
+      tags:
+        - Cart
+      summary: Tambah item ke keranjang
+      description: |
+        Menambahkan produk ke keranjang belanja.
+        - Jika produk sudah ada di keranjang, quantity akan **ditambah** (bukan diganti).
+        - Validasi stok dilakukan sebelum penambahan.
+      operationId: addToCart
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - productId
+              properties:
+                productId:
+                  type: string
+                  description: ID produk yang akan ditambahkan
+                  example: clxprod001
+                quantity:
+                  type: integer
+                  description: Jumlah yang ditambahkan (default 1)
+                  default: 1
+                  minimum: 1
+                  example: 2
+            example:
+              productId: clxprod001
+              quantity: 2
+      responses:
+        '200':
+          description: Produk berhasil ditambahkan ke keranjang
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/CartItem'
+                  message:
+                    type: string
+                    example: Produk berhasil ditambahkan ke keranjang
+        '400':
+          description: Stok tidak cukup atau productId kosong
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                message: "Stok tidak cukup. Stok tersedia: 3"
+        '404':
+          description: Produk tidak ditemukan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/cart/{id}:
+    put:
+      tags:
+        - Cart
+      summary: Update jumlah item di keranjang
+      description: Mengubah quantity item tertentu di keranjang. Quantity harus minimal 1.
+      operationId: updateCartItem
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: ID item di keranjang (bukan productId)
+          example: clxcart789
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - quantity
+              properties:
+                quantity:
+                  type: integer
+                  minimum: 1
+                  example: 5
+            example:
+              quantity: 5
+      responses:
+        '200':
+          description: Quantity berhasil diupdate
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/CartItem'
+        '400':
+          description: Quantity tidak valid atau stok tidak cukup
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Item keranjang tidak ditemukan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    delete:
+      tags:
+        - Cart
+      summary: Hapus item dari keranjang
+      description: Menghapus satu item dari keranjang belanja.
+      operationId: removeFromCart
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: ID item di keranjang
+          example: clxcart789
+      responses:
+        '200':
+          description: Item berhasil dihapus
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+              example:
+                success: true
+                message: Item berhasil dihapus dari keranjang
+        '404':
+          description: Item tidak ditemukan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/cart/clear:
+    delete:
+      tags:
+        - Cart
+      summary: Kosongkan semua keranjang
+      description: Menghapus **semua** item dari keranjang user yang sedang login.
+      operationId: clearCart
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Keranjang berhasil dikosongkan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+              example:
+                success: true
+                message: Keranjang berhasil dikosongkan

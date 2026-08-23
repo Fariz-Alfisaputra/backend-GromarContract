@@ -1,0 +1,209 @@
+paths:
+  /api/contracts:
+    post:
+      tags:
+        - B2B Contracts
+      summary: Ajukan kontrak berjangka B2B baru (Pembeli)
+      description: |
+        Membuat pengajuan kontrak suplai pertanian atau hasil laut berjangka baru.
+        Hanya bisa dilakukan oleh pengguna yang sudah terautentikasi (Pembeli/Customer).
+      operationId: createContractRequest
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - sector
+                - productName
+                - minVolume
+                - price
+                - region
+              properties:
+                sector:
+                  type: string
+                  enum: [agro, marine]
+                  example: agro
+                  description: Sektor industri (pertanian atau laut)
+                productName:
+                  type: string
+                  example: Premium White Rice
+                  description: Nama produk/komoditas yang diajukan
+                minVolume:
+                  type: string
+                  example: 5 tons
+                  description: Volume pasokan minimum kontrak
+                price:
+                  type: string
+                  example: Rp 11,500
+                  description: Harga penawaran/kesepakatan per unit
+                region:
+                  type: string
+                  example: Karawang, West Java
+                  description: Wilayah pengiriman/daerah produsen asal
+      responses:
+        '201':
+          description: Kontrak berhasil diajukan
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/ContractRequest'
+        '400':
+          description: Input tidak valid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '401':
+          description: Tidak terautentikasi
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    get:
+      tags:
+        - B2B Contracts
+      summary: Daftar pengajuan kontrak B2B
+      description: |
+        Mengambil daftar pengajuan kontrak B2B.
+        - **Pembeli/Customer**: Hanya mendapatkan daftar kontrak yang **dia buat sendiri**.
+        - **Penjual/Seller & Admin**: Mendapatkan **seluruh daftar kontrak** dari semua pengguna untuk ditinjau dan dikelola (Disetujui/Ditolak).
+      operationId: getContractRequests
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Daftar kontrak berhasil diambil
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ContractRequest'
+        '401':
+          description: Tidak terautentikasi
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/contracts/{id}:
+    delete:
+      tags:
+        - B2B Contracts
+      summary: Batalkan/Hapus pengajuan kontrak B2B
+      description: Membatalkan atau menghapus pengajuan kontrak B2B. Hanya pembuat kontrak tersebut atau Admin yang dapat menghapusnya.
+      operationId: deleteContractRequest
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: ID dari kontrak B2B
+          example: clxcontract123
+      responses:
+        '200':
+          description: Kontrak berhasil dibatalkan/dihapus
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+              example:
+                success: true
+                message: Kontrak berhasil dibatalkan/dihapus
+        '403':
+          description: Akses ditolak (Bukan pembuat kontrak atau Admin)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Kontrak tidak ditemukan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/contracts/{id}/status:
+    patch:
+      tags:
+        - B2B Contracts
+      summary: Ubah status kontrak B2B (Penjual / Admin)
+      description: |
+        Menyetujui atau menolak pengajuan kontrak B2B.
+        Hanya dapat diakses oleh **Penjual (Seller)** atau **Admin**.
+      operationId: updateContractRequestStatus
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: ID dari kontrak B2B
+          example: clxcontract123
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - status
+              properties:
+                status:
+                  type: string
+                  enum: [PENDING, APPROVED, REJECTED]
+                  example: APPROVED
+                  description: Status baru kontrak B2B
+      responses:
+        '200':
+          description: Status kontrak berhasil diperbarui
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/ContractRequest'
+        '400':
+          description: Status tidak valid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Akses ditolak (Bukan Penjual atau Admin)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Kontrak tidak ditemukan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
