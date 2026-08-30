@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: gromar-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: gromar
+      POSTGRES_PASSWORD: gromar123
+      POSTGRES_DB: gromar_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
