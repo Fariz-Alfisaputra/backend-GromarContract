@@ -1,4 +1,5 @@
 import swaggerJsdoc from 'swagger-jsdoc'
+import path from 'path'
 
 const options: swaggerJsdoc.Options = {
   definition: {
@@ -220,7 +221,7 @@ Backend REST API untuk platform toko online **Gromar**, menghubungkan petani, ne
       { name: 'B2B Contracts', description: '📄 Pengajuan kontrak berjangka B2B / Smart Contract (butuh login)' },
     ],
   },
-  apis: ['./src/docs/*.yaml'],
+  apis: [path.join(__dirname, '../docs/*.yaml')],
 }
 
 export const swaggerSpec = swaggerJsdoc(options)
