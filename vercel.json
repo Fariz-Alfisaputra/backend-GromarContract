@@ -5,7 +5,9 @@
       "src": "api/index.ts",
       "use": "@vercel/node",
       "config": {
-        "includeFiles": ["src/docs/**", "prisma/schema.prisma"]
+        "includeFiles": ["src/docs/**", "prisma/schema.prisma"],
+        "maxDuration": 60,
+        "supportsResponseStreaming": true
       }
     }
   ],
