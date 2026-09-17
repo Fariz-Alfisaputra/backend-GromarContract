@@ -98,15 +98,24 @@ model OrderItem {
 }
 
 model ContractRequest {
-  id          String   @id @default(cuid())
-  sector      String   // agro | marine
-  productName String
-  minVolume   String
-  price       String
-  region      String
-  status      String   @default("PENDING") // PENDING | APPROVED | REJECTED
-  userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id             String    @id @default(cuid())
+  contractNumber String?
+  sector         String    // agro | marine
+  productName    String
+  minVolume      String
+  price          String
+  region         String
+  companyName    String?
+  nibOrNik       String?
+  picContact     String?
+  supplyDuration String?
+  documentUrl    String?
+  buyerNotes     String?
+  buyerSignedAt  DateTime?
+  sellerSignedAt DateTime?
+  status         String    @default("PENDING") // PENDING | APPROVED | REJECTED
+  userId         String
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 }
