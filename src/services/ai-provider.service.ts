@@ -42,7 +42,7 @@ class GeminiProvider implements AIProvider {
     res: Response,
     isAbortedFn: () => boolean
   ): Promise<boolean> {
-    const modelName = process.env.GEMINI_MODEL || 'gemini-3.6-flash'
+    const modelName = process.env.GEMINI_MODEL || 'gemini-2.5-flash'
 
     const geminiContents = messages.map((m) => ({
       role: m.role === 'assistant' ? 'model' : 'user',
@@ -77,10 +77,14 @@ class GeminiProvider implements AIProvider {
 
     let success = await tryModel(modelName)
 
-    // Fallback to gemini-3.6-flash if configured model failed
-    if (!success && modelName !== 'gemini-3.6-flash' && !isAbortedFn()) {
-      console.log("[GeminiProvider] Fallback to 'gemini-3.6-flash'...")
-      success = await tryModel('gemini-3.6-flash')
+    // Fallbacks if configured model failed
+    const fallbackModels = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash']
+    for (const fallback of fallbackModels) {
+      if (success || isAbortedFn()) break
+      if (fallback !== modelName) {
+        console.log(`[GeminiProvider] Fallback to '${fallback}'...`)
+        success = await tryModel(fallback)
+      }
     }
 
     return success
