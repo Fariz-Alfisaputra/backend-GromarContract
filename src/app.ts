@@ -2,6 +2,7 @@ import express, { Request, Response, NextFunction } from 'express'
 import cors from 'cors'
 import swaggerUi from 'swagger-ui-express'
 import { Prisma } from '@prisma/client'
+import multer from 'multer'
 import { swaggerSpec } from './config/swagger'
 import { prisma } from './lib/prisma'
 
@@ -46,7 +47,6 @@ app.use('/api/payment/webhook', express.raw({ type: 'application/json' }))
 
 app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
-app.use('/uploads', express.static(path.join(__dirname, '../public/uploads')))
 
 // Health check
 app.get('/api/health', async (req: Request, res: Response) => {
@@ -134,6 +134,25 @@ app.use((_req: Request, res: Response) => {
 
 // Global async error handler (Express 5 handles async errors natively)
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+  // Handle multer file upload errors with proper status codes
+  if (err instanceof multer.MulterError) {
+    const messages: Record<string, string> = {
+      LIMIT_FILE_SIZE: 'Ukuran file terlalu besar (maks 5MB)',
+      LIMIT_UNEXPECTED_FILE: 'Field file tidak sesuai',
+    }
+    res.status(400).json({
+      success: false,
+      message: messages[err.code] || `Upload error: ${err.message}`,
+    })
+    return
+  }
+
+  // Handle multer fileFilter rejection (thrown as plain Error)
+  if (err.message && err.message.includes('mengunggah file gambar')) {
+    res.status(400).json({ success: false, message: err.message })
+    return
+  }
+
   if (err instanceof Prisma.PrismaClientKnownRequestError) {
     console.error('[Prisma KnownRequestError]', {
       code: err.code,
