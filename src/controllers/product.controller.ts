@@ -2,14 +2,37 @@ import { Request, Response } from 'express'
 import { prisma } from '../lib/prisma'
 import { z } from 'zod'
 
+/** Convert a product name into a URL-friendly slug */
+function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .trim()
+    .replace(/[^\w\s-]/g, '')   // remove non-word chars (except spaces & hyphens)
+    .replace(/[\s_]+/g, '-')     // collapse whitespace / underscores to single hyphen
+    .replace(/-+/g, '-')         // collapse multiple hyphens
+    .replace(/^-+|-+$/g, '')     // trim leading/trailing hyphens
+}
+
+/** Ensure slug is unique — appends -2, -3, … if collision found */
+async function uniqueSlug(baseSlug: string, excludeId?: string): Promise<string> {
+  let slug = baseSlug
+  let counter = 1
+  while (true) {
+    const existing = await prisma.product.findUnique({ where: { slug } })
+    if (!existing || existing.id === excludeId) return slug
+    counter++
+    slug = `${baseSlug}-${counter}`
+  }
+}
+
 const productSchema = z.object({
   name: z.string().min(2),
-  slug: z.string().min(2),
+  slug: z.string().min(2).optional(),  // optional — auto-generated from name
   description: z.string().optional(),
   price: z.number().positive(),
   stock: z.number().int().min(0),
   unit: z.string().default('kg'),
-  imageUrl: z.string().url().optional().or(z.literal('')),
+  imageUrl: z.string().url().optional().or(z.literal('')).or(z.null()),
   categoryId: z.string(),
   isActive: z.boolean().optional(),
 })
@@ -83,14 +106,15 @@ export const createProduct = async (req: Request, res: Response): Promise<void> 
     return
   }
 
-  const existing = await prisma.product.findUnique({ where: { slug: parsed.data.slug } })
-  if (existing) {
-    res.status(400).json({ success: false, message: 'Slug sudah digunakan' })
-    return
-  }
+  // Auto-generate slug from name if not provided
+  const slug = await uniqueSlug(parsed.data.slug || slugify(parsed.data.name))
 
   const product = await prisma.product.create({
-    data: parsed.data,
+    data: {
+      ...parsed.data,
+      slug,
+      imageUrl: parsed.data.imageUrl || null,
+    },
     include: { category: true },
   })
 
@@ -105,9 +129,15 @@ export const updateProduct = async (req: Request, res: Response): Promise<void> 
     return
   }
 
+  const data: any = { ...parsed.data }
+  // Coerce empty imageUrl to null
+  if ('imageUrl' in data && !data.imageUrl) {
+    data.imageUrl = null
+  }
+
   const product = await prisma.product.update({
     where: { id },
-    data: parsed.data,
+    data,
     include: { category: true },
   })
 
