@@ -16,8 +16,16 @@ import contractRoutes from './routes/contract.routes'
 import uploadRoutes from './routes/upload.routes'
 import chatRoutes from './routes/chat.routes'
 import path from 'path'
+import fs from 'fs'
 
 const app = express()
+
+// Ensure public/uploads exists for local uploads fallback
+const uploadsPath = path.join(process.cwd(), 'public/uploads')
+if (!fs.existsSync(uploadsPath)) {
+  fs.mkdirSync(uploadsPath, { recursive: true })
+}
+app.use('/uploads', express.static(uploadsPath))
 
 const allowedOrigins = (process.env.FRONTEND_URL || 'http://localhost:3000')
   .split(',')

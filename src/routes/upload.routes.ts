@@ -1,12 +1,14 @@
 import { Router } from 'express'
 import multer from 'multer'
+import path from 'path'
+import fs from 'fs'
 import { authMiddleware } from '../middleware/auth.middleware'
 import { adminMiddleware } from '../middleware/admin.middleware'
 import cloudinary from '../config/cloudinary'
 
 const router = Router()
 
-// Use memory storage — no disk writes (required for Vercel Serverless)
+// Use memory storage — buffers can be sent to Cloudinary or written locally
 const uploadImage = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
@@ -51,61 +53,122 @@ async function uploadToCloudinary(
   })
 }
 
-// Route for admin product image upload → Cloudinary
+/** Helper: save buffer to local disk storage and return public URL */
+function saveLocally(req: any, buffer: Buffer, originalName: string, prefix = 'img'): string {
+  const uploadDir = path.join(process.cwd(), 'public/uploads')
+  if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true })
+  }
+
+  const ext = path.extname(originalName) || '.webp'
+  const filename = `${prefix}-${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`
+  const filePath = path.join(uploadDir, filename)
+  fs.writeFileSync(filePath, buffer)
+
+  const forwardedProto = req.headers['x-forwarded-proto']
+  const protocol = Array.isArray(forwardedProto) ? forwardedProto[0] : forwardedProto || req.protocol
+  const host = req.get('host') || `localhost:${process.env.PORT || 5000}`
+
+  return `${protocol}://${host}/uploads/${filename}`
+}
+
+// Route for admin product image upload → Cloudinary with local storage fallback
 router.post('/', authMiddleware, adminMiddleware, uploadImage.single('image'), async (req: any, res: any) => {
   if (!req.file) {
     return res.status(400).json({ success: false, message: 'Tidak ada file gambar yang diunggah' })
   }
 
-  try {
-    const result = await uploadToCloudinary(req.file.buffer, {
-      folder: 'gromar/products',
-      format: 'webp',
-      transformation: [
-        { width: 800, height: 800, crop: 'limit', quality: 'auto:good' }
-      ],
-    })
+  // 1. Try Cloudinary if credentials appear configured
+  const cloudName = process.env.CLOUDINARY_CLOUD_NAME
+  const isCloudinarySet = Boolean(cloudName && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET)
 
-    res.json({ success: true, url: result.secure_url })
-  } catch (error: any) {
-    console.error('[Upload] Cloudinary error:', error)
-    res.status(500).json({
+  if (isCloudinarySet) {
+    try {
+      const result = await uploadToCloudinary(req.file.buffer, {
+        folder: 'gromar/products',
+        format: 'webp',
+        transformation: [
+          { width: 800, height: 800, crop: 'limit', quality: 'auto:good' }
+        ],
+      })
+
+      return res.json({ success: true, url: result.secure_url, storage: 'cloudinary' })
+    } catch (cloudError: any) {
+      console.warn('[Upload] Cloudinary upload failed (mismatch or network error):', cloudError?.message || cloudError)
+      console.warn('[Upload] Falling back to local disk storage...')
+    }
+  }
+
+  // 2. Fallback to local storage (dev mode, offline, or Cloudinary misconfigured)
+  try {
+    const localUrl = saveLocally(req, req.file.buffer, req.file.originalname, 'product')
+    return res.json({
+      success: true,
+      url: localUrl,
+      storage: 'local',
+      warning: isCloudinarySet ? 'Gambar disimpan secara lokal karena Cloudinary gagal terhubung.' : undefined
+    })
+  } catch (localError: any) {
+    console.error('[Upload] Local storage error:', localError)
+    return res.status(500).json({
       success: false,
-      message: 'Gagal mengunggah gambar ke cloud storage',
-      ...(process.env.NODE_ENV === 'development' && { error: error.message }),
+      message: 'Gagal mengunggah gambar ke cloud maupun penyimpanan lokal',
+      ...(process.env.NODE_ENV === 'development' && { error: localError.message }),
     })
   }
 })
 
-// Route for B2B contract document / scan upload → Cloudinary
+// Route for B2B contract document / scan upload → Cloudinary with local storage fallback
 router.post('/document', authMiddleware, uploadDocument.single('file'), async (req: any, res: any) => {
   if (!req.file) {
     return res.status(400).json({ success: false, message: 'Tidak ada berkas dokumen yang diunggah' })
   }
 
-  try {
-    const isPdf = req.file.mimetype === 'application/pdf'
-    const result = await uploadToCloudinary(req.file.buffer, {
-      folder: 'gromar/documents',
-      resource_type: isPdf ? 'raw' : 'image',
-      format: isPdf ? 'pdf' : 'webp',
-      ...(!isPdf && {
-        transformation: [{ quality: 'auto:good' }],
-      }),
-    })
+  const cloudName = process.env.CLOUDINARY_CLOUD_NAME
+  const isCloudinarySet = Boolean(cloudName && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET)
 
-    res.json({
+  if (isCloudinarySet) {
+    try {
+      const isPdf = req.file.mimetype === 'application/pdf'
+      const result = await uploadToCloudinary(req.file.buffer, {
+        folder: 'gromar/documents',
+        resource_type: isPdf ? 'raw' : 'image',
+        format: isPdf ? 'pdf' : 'webp',
+        ...(!isPdf && {
+          transformation: [{ quality: 'auto:good' }],
+        }),
+      })
+
+      return res.json({
+        success: true,
+        url: result.secure_url,
+        filename: req.file.originalname,
+        size: req.file.size,
+        storage: 'cloudinary',
+      })
+    } catch (cloudError: any) {
+      console.warn('[Upload] Cloudinary document error:', cloudError?.message || cloudError)
+      console.warn('[Upload] Falling back to local disk storage for document...')
+    }
+  }
+
+  // Fallback to local storage for document
+  try {
+    const localUrl = saveLocally(req, req.file.buffer, req.file.originalname, 'doc')
+    return res.json({
       success: true,
-      url: result.secure_url,
+      url: localUrl,
       filename: req.file.originalname,
       size: req.file.size,
+      storage: 'local',
+      warning: isCloudinarySet ? 'Dokumen disimpan secara lokal karena Cloudinary gagal terhubung.' : undefined
     })
-  } catch (error: any) {
-    console.error('[Upload] Cloudinary document error:', error)
-    res.status(500).json({
+  } catch (localError: any) {
+    console.error('[Upload] Local storage document error:', localError)
+    return res.status(500).json({
       success: false,
-      message: 'Gagal mengunggah dokumen ke cloud storage',
-      ...(process.env.NODE_ENV === 'development' && { error: error.message }),
+      message: 'Gagal mengunggah dokumen ke cloud maupun penyimpanan lokal',
+      ...(process.env.NODE_ENV === 'development' && { error: localError.message }),
     })
   }
 })
