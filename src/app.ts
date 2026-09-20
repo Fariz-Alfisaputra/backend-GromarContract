@@ -20,12 +20,18 @@ import fs from 'fs'
 
 const app = express()
 
-// Ensure public/uploads exists for local uploads fallback
-const uploadsPath = path.join(process.cwd(), 'public/uploads')
-if (!fs.existsSync(uploadsPath)) {
-  fs.mkdirSync(uploadsPath, { recursive: true })
+// Ensure public/uploads exists for local uploads fallback (local dev only, skip on Vercel Serverless)
+if (!process.env.VERCEL) {
+  try {
+    const uploadsPath = path.join(process.cwd(), 'public/uploads')
+    if (!fs.existsSync(uploadsPath)) {
+      fs.mkdirSync(uploadsPath, { recursive: true })
+    }
+    app.use('/uploads', express.static(uploadsPath))
+  } catch (err) {
+    console.warn('[Server] Skipping local uploads directory setup:', err)
+  }
 }
-app.use('/uploads', express.static(uploadsPath))
 
 const allowedOrigins = (process.env.FRONTEND_URL || 'http://localhost:3000')
   .split(',')

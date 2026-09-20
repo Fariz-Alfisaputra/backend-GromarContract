@@ -55,6 +55,10 @@ async function uploadToCloudinary(
 
 /** Helper: save buffer to local disk storage and return public URL */
 function saveLocally(req: any, buffer: Buffer, originalName: string, prefix = 'img'): string {
+  if (process.env.VERCEL) {
+    throw new Error('Penyimpanan lokal tidak didukung di Vercel Serverless. Pastikan kredensial Cloudinary (CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET) sudah diisi di Vercel Environment Variables.')
+  }
+
   const uploadDir = path.join(process.cwd(), 'public/uploads')
   if (!fs.existsSync(uploadDir)) {
     fs.mkdirSync(uploadDir, { recursive: true })
