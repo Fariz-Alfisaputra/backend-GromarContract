@@ -1,6 +1,7 @@
 import { Request, Response } from 'express'
 import { prisma } from '../lib/prisma'
 import { verifyNotification } from '../services/payment.service'
+import { triggerAutoShippingSimulation } from './order.controller'
 
 export const handleWebhook = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -37,6 +38,10 @@ export const handleWebhook = async (req: Request, res: Response): Promise<void> 
         paymentId: statusResponse.transaction_id,
       },
     })
+
+    if (orderStatus === 'PAID') {
+      triggerAutoShippingSimulation(orderId)
+    }
 
     res.json({ success: true, message: 'Notification processed' })
   } catch (error) {

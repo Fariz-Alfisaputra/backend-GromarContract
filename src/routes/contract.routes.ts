@@ -2,6 +2,7 @@ import { Router } from 'express'
 import {
   createContractRequest,
   getContractRequests,
+  getContractRequestById,
   updateContractRequestStatus,
   deleteContractRequest,
 } from '../controllers/contract.controller'
@@ -14,6 +15,7 @@ router.use(authMiddleware)
 
 router.post('/', createContractRequest)
 router.get('/', getContractRequests)
+router.get('/:id', getContractRequestById)
 router.patch('/:id/status', updateContractRequestStatus)
 router.delete('/:id', deleteContractRequest)
 

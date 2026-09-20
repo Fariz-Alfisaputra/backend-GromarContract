@@ -45,7 +45,7 @@ app.use(cors({
       return
     }
 
-    callback(new Error(`CORS blocked for origin: ${origin}`))
+    callback(null, false)
   },
   credentials: true,
 }))
