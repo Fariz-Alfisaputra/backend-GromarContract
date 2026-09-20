@@ -26,14 +26,14 @@ async function uniqueSlug(baseSlug: string, excludeId?: string): Promise<string>
 }
 
 const productSchema = z.object({
-  name: z.string().min(2),
+  name: z.string().min(2, 'Nama produk minimal 2 karakter'),
   slug: z.string().min(2).optional(),  // optional — auto-generated from name
   description: z.string().optional(),
-  price: z.number().positive(),
-  stock: z.number().int().min(0),
+  price: z.number().positive('Harga harus lebih besar dari 0'),
+  stock: z.number().int().min(0, 'Stok tidak boleh negatif'),
   unit: z.string().default('kg'),
-  imageUrl: z.string().url().optional().or(z.literal('')).or(z.null()),
-  categoryId: z.string(),
+  imageUrl: z.string().optional().or(z.literal('')).or(z.null()),
+  categoryId: z.string().min(1, 'Kategori produk wajib dipilih'),
   isActive: z.boolean().optional(),
 })
 
@@ -100,48 +100,102 @@ export const getProductBySlug = async (req: Request, res: Response): Promise<voi
 }
 
 export const createProduct = async (req: Request, res: Response): Promise<void> => {
-  const parsed = productSchema.safeParse(req.body)
-  if (!parsed.success) {
-    res.status(400).json({ success: false, errors: parsed.error.flatten().fieldErrors })
-    return
+  try {
+    const parsed = productSchema.safeParse(req.body)
+    if (!parsed.success) {
+      res.status(400).json({ success: false, message: 'Data produk tidak valid', errors: parsed.error.flatten().fieldErrors })
+      return
+    }
+
+    // Verify category exists
+    const categoryExists = await prisma.category.findUnique({
+      where: { id: parsed.data.categoryId },
+    })
+    if (!categoryExists) {
+      res.status(400).json({ success: false, message: 'Kategori tidak valid atau tidak ditemukan' })
+      return
+    }
+
+    // Auto-generate slug from name if not provided
+    const baseSlug = slugify(parsed.data.name) || `produk-${Date.now()}`
+    const slug = await uniqueSlug(parsed.data.slug || baseSlug)
+
+    const product = await prisma.product.create({
+      data: {
+        ...parsed.data,
+        slug,
+        imageUrl: parsed.data.imageUrl || null,
+      },
+      include: { category: true },
+    })
+
+    res.status(201).json({ success: true, data: product })
+  } catch (error: any) {
+    console.error('[Product Controller] createProduct error:', error)
+    if (error.code === 'P2003') {
+      res.status(400).json({ success: false, message: 'Kategori yang dipilih tidak valid' })
+      return
+    }
+    if (error.code === 'P2002') {
+      res.status(400).json({ success: false, message: 'Produk dengan slug atau data ini sudah ada' })
+      return
+    }
+    res.status(500).json({
+      success: false,
+      message: 'Gagal membuat produk baru',
+      ...(process.env.NODE_ENV === 'development' && { error: error.message }),
+    })
   }
-
-  // Auto-generate slug from name if not provided
-  const slug = await uniqueSlug(parsed.data.slug || slugify(parsed.data.name))
-
-  const product = await prisma.product.create({
-    data: {
-      ...parsed.data,
-      slug,
-      imageUrl: parsed.data.imageUrl || null,
-    },
-    include: { category: true },
-  })
-
-  res.status(201).json({ success: true, data: product })
 }
 
 export const updateProduct = async (req: Request, res: Response): Promise<void> => {
-  const { id } = req.params as { id: string }
-  const parsed = productSchema.partial().safeParse(req.body)
-  if (!parsed.success) {
-    res.status(400).json({ success: false, errors: parsed.error.flatten().fieldErrors })
-    return
+  try {
+    const { id } = req.params as { id: string }
+    const parsed = productSchema.partial().safeParse(req.body)
+    if (!parsed.success) {
+      res.status(400).json({ success: false, message: 'Data produk tidak valid', errors: parsed.error.flatten().fieldErrors })
+      return
+    }
+
+    if (parsed.data.categoryId) {
+      const categoryExists = await prisma.category.findUnique({
+        where: { id: parsed.data.categoryId },
+      })
+      if (!categoryExists) {
+        res.status(400).json({ success: false, message: 'Kategori tidak valid atau tidak ditemukan' })
+        return
+      }
+    }
+
+    const data: any = { ...parsed.data }
+    // Coerce empty imageUrl to null
+    if ('imageUrl' in data && !data.imageUrl) {
+      data.imageUrl = null
+    }
+
+    const product = await prisma.product.update({
+      where: { id },
+      data,
+      include: { category: true },
+    })
+
+    res.json({ success: true, data: product })
+  } catch (error: any) {
+    console.error('[Product Controller] updateProduct error:', error)
+    if (error.code === 'P2003') {
+      res.status(400).json({ success: false, message: 'Kategori yang dipilih tidak valid' })
+      return
+    }
+    if (error.code === 'P2025') {
+      res.status(404).json({ success: false, message: 'Produk tidak ditemukan untuk diperbarui' })
+      return
+    }
+    res.status(500).json({
+      success: false,
+      message: 'Gagal memperbarui produk',
+      ...(process.env.NODE_ENV === 'development' && { error: error.message }),
+    })
   }
-
-  const data: any = { ...parsed.data }
-  // Coerce empty imageUrl to null
-  if ('imageUrl' in data && !data.imageUrl) {
-    data.imageUrl = null
-  }
-
-  const product = await prisma.product.update({
-    where: { id },
-    data,
-    include: { category: true },
-  })
-
-  res.json({ success: true, data: product })
 }
 
 export const deleteProduct = async (req: Request, res: Response): Promise<void> => {
