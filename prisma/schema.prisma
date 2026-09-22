@@ -112,10 +112,41 @@ model ContractRequest {
   documentUrl    String?
   buyerNotes     String?
   buyerSignedAt  DateTime?
-  sellerSignedAt DateTime?
-  status         String    @default("PENDING") // PENDING | APPROVED | REJECTED
-  userId         String
+  sellerSignedAt      DateTime?
+  status              String    @default("PENDING") // PENDING | APPROVED | REJECTED | CANCELLED
+  cancellationReason  String?
+  cancelledBy         String?   // BUYER | SELLER | ADMIN
+  cancelledAt         DateTime?
+  
+  // Escrow & Logistics lifecycle
+  escrowStatus        String    @default("UNPAID") // UNPAID | LOCKED | SHIPPED | RELEASED | REFUNDED
+  escrowAmount        Float?
+  escrowPaidAt        DateTime?
+  escrowReleasedAt    DateTime?
+  escrowRefundedAt    DateTime?
+  escrowSnapToken     String?
+  escrowPaymentUrl    String?
+  escrowMidtransOrderId String?
+  deliveryStatus      String    @default("PENDING") // PENDING | PROCESSING | SHIPPED | DELIVERED
+  trackingNumber      String?
+  bastVerifiedAt      DateTime?
+
+  userId              String
   user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
+
+  logs           TransactionLog[]
+}
+
+model TransactionLog {
+  id              String   @id @default(cuid())
+  contractId      String
+  action          String   // ESCROW_DEPOSITED | ESCROW_RELEASED | SHIPPED | STATUS_CHANGED | BAST_VERIFIED | CANCELLED
+  description     String
+  performedByRole String   // BUYER | SELLER | ADMIN | SYSTEM
+  performedByName String?
+  createdAt       DateTime @default(now())
+
+  contract        ContractRequest @relation(fields: [contractId], references: [id], onDelete: Cascade)
 }

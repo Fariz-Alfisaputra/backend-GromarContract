@@ -18,6 +18,7 @@ export const handleWebhook = async (req: Request, res: Response): Promise<void> 
     console.log(`[Webhook] Order: ${orderId}, Status: ${transactionStatus}, Fraud: ${fraudStatus}`)
 
     let orderStatus: string
+    let contractEscrowStatus: string | null = null
 
     if (transactionStatus === 'capture') {
       orderStatus = fraudStatus === 'challenge' ? 'PENDING' : 'PAID'
@@ -31,6 +32,19 @@ export const handleWebhook = async (req: Request, res: Response): Promise<void> 
       orderStatus = 'PENDING'
     }
 
+    // Also try to update contract escrow when orderId matches escrowMidtransOrderId
+    const escrowContract = await prisma.contractRequest.findFirst({
+      where: { escrowMidtransOrderId: orderId },
+    })
+
+    if (escrowContract) {
+      if (orderStatus === 'PAID') {
+        contractEscrowStatus = 'LOCKED'
+      } else if (orderStatus === 'CANCELLED') {
+        contractEscrowStatus = 'REFUNDED'
+      }
+    }
+
     await prisma.order.update({
       where: { id: orderId },
       data: {
@@ -38,6 +52,16 @@ export const handleWebhook = async (req: Request, res: Response): Promise<void> 
         paymentId: statusResponse.transaction_id,
       },
     })
+
+    if (escrowContract && contractEscrowStatus) {
+      await prisma.contractRequest.update({
+        where: { id: escrowContract.id },
+        data: {
+          escrowStatus: contractEscrowStatus,
+          escrowPaidAt: contractEscrowStatus === 'LOCKED' ? new Date() : escrowContract.escrowPaidAt,
+        },
+      })
+    }
 
     if (orderStatus === 'PAID') {
       triggerAutoShippingSimulation(orderId)

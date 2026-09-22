@@ -1,6 +1,7 @@
 import { Request, Response } from 'express'
 import { prisma } from '../lib/prisma'
 import { z } from 'zod'
+import { snap } from '../services/payment.service'
 
 const contractSchema = z.object({
   sector: z.enum(['agro', 'marine']),
@@ -15,6 +16,30 @@ const contractSchema = z.object({
   documentUrl: z.string().optional(),
   buyerNotes: z.string().optional(),
 })
+
+const escrowCancelSchema = z.object({
+  reason: z.string().min(3),
+})
+
+const escrowDepositSchema = z.object({
+  // dpAmount is nominal DP/escrow to lock. Use Float to be consistent with Prisma.
+  dpAmount: z.number().positive(),
+})
+
+const escrowShipSchema = z.object({
+  trackingNumber: z.string().min(3),
+})
+
+const escrowReleaseSchema = z.object({
+  bastVerifiedAt: z.string().optional(),
+})
+
+const safeNow = () => new Date()
+
+type EscrowDepositResult = {
+  snapToken: string
+  escrowPaymentUrl: string
+}
 
 export const createContractRequest = async (req: Request, res: Response): Promise<void> => {
   const parsed = contractSchema.safeParse(req.body)
@@ -98,7 +123,7 @@ export const updateContractRequestStatus = async (req: Request, res: Response): 
     return
   }
 
-  if (!['PENDING', 'APPROVED', 'REJECTED'].includes(status)) {
+  if (!['PENDING', 'APPROVED', 'REJECTED', 'CANCELLED'].includes(status)) {
     res.status(400).json({ success: false, message: 'Status tidak valid' })
     return
   }
@@ -108,6 +133,10 @@ export const updateContractRequestStatus = async (req: Request, res: Response): 
 
     if (status === 'APPROVED') {
       updateData.sellerSignedAt = new Date()
+    } else if (status === 'CANCELLED') {
+      updateData.cancelledAt = new Date()
+      updateData.cancelledBy = user.role
+      if (notes) updateData.cancellationReason = notes
     }
 
     const updated = await prisma.contractRequest.update({
@@ -120,6 +149,214 @@ export const updateContractRequestStatus = async (req: Request, res: Response): 
     res.json({ success: true, data: updated })
   } catch (error: any) {
     res.status(404).json({ success: false, message: 'Kontrak tidak ditemukan' })
+  }
+}
+
+export const cancelContractRequest = async (req: Request, res: Response): Promise<void> => {
+  const { id } = req.params as { id: string }
+  const { reason } = req.body
+  const user = (req as any).user
+
+  if (!reason || typeof reason !== 'string' || reason.trim().length < 3) {
+    res.status(400).json({ success: false, message: 'Alasan pembatalan wajib diisi dengan jelas (minimal 3 karakter).' })
+    return
+  }
+
+  try {
+    const contract = await prisma.contractRequest.findUnique({ where: { id } })
+    if (!contract) {
+      res.status(404).json({ success: false, message: 'Kontrak tidak ditemukan' })
+      return
+    }
+
+    // Customer can cancel own contract; Seller/Admin can cancel any
+    if (contract.userId !== user.id && user.role !== 'ADMIN' && user.role !== 'SELLER') {
+      res.status(403).json({ success: false, message: 'Akses ditolak' })
+      return
+    }
+
+    const cancelledBy = user.role === 'ADMIN' ? 'ADMIN' : user.role === 'SELLER' ? 'SELLER' : 'BUYER'
+
+    const updated = await prisma.contractRequest.update({
+      where: { id },
+      data: {
+        status: 'CANCELLED',
+        cancellationReason: reason.trim(),
+        cancelledBy,
+        cancelledAt: new Date(),
+      },
+      include: {
+        user: { select: { name: true, email: true, role: true } },
+      },
+    })
+
+    res.json({ success: true, message: 'Kontrak berhasil dibatalkan', data: updated })
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message })
+  }
+}
+
+export const depositEscrow = async (req: Request, res: Response): Promise<void> => {
+  const { id } = req.params as { id: string }
+  const user = (req as any).user
+  const parsed = escrowDepositSchema.safeParse(req.body)
+
+  if (!parsed.success) {
+    res.status(400).json({ success: false, message: parsed.error.flatten() })
+    return
+  }
+
+  const { dpAmount } = parsed.data
+
+  try {
+    const contract = await prisma.contractRequest.findUnique({ where: { id }, include: { user: true } })
+    if (!contract) {
+      res.status(404).json({ success: false, message: 'Kontrak tidak ditemukan' })
+      return
+    }
+
+    // Escrow deposit only for buyer (or admin) and only when APPROVED
+    if (contract.userId !== user.id && user.role !== 'ADMIN' && user.role !== 'SELLER') {
+      res.status(403).json({ success: false, message: 'Akses ditolak' })
+      return
+    }
+
+    if ((contract.escrowStatus ?? 'UNPAID') !== 'UNPAID') {
+      res.status(400).json({ success: false, message: 'Escrow tidak tersedia untuk dideposit' })
+      return
+    }
+
+    const escrowOrderId = `ESCROW-${contract.id}-${Date.now()}`
+
+    // Create Midtrans Snap token for escrow deposit
+    const snapTransaction = await snap.createTransaction({
+      transaction_details: {
+        order_id: escrowOrderId,
+        gross_amount: Math.round(dpAmount),
+      },
+      customer_details: {
+        first_name: contract.user?.name || 'Customer',
+        email: contract.user?.email || 'customer@example.com',
+      },
+      item_details: [
+        {
+          id: 'escrow',
+          price: Math.round(dpAmount),
+          quantity: 1,
+          name: `Escrow Kontrak ${contract.contractNumber || contract.id}`,
+        },
+      ],
+      callbacks: {
+        finish: `${process.env.FRONTEND_URL}/contract/${contract.id}?escrow=finish`,
+      },
+    })
+
+    const updated = await prisma.contractRequest.update({
+      where: { id },
+      data: {
+        escrowStatus: 'LOCKED',
+        escrowAmount: dpAmount,
+        escrowPaidAt: safeNow(),
+        escrowMidtransOrderId: escrowOrderId,
+        escrowSnapToken: snapTransaction.token,
+        escrowPaymentUrl: snapTransaction.redirect_url,
+      },
+      include: { user: true },
+    })
+
+    res.json({ success: true, data: { snapToken: snapTransaction.token, paymentUrl: snapTransaction.redirect_url, contract: updated } })
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error?.message || 'Gagal membuat escrow token' })
+  }
+}
+
+export const shipEscrow = async (req: Request, res: Response): Promise<void> => {
+  const { id } = req.params as { id: string }
+  const user = (req as any).user
+  const parsed = escrowShipSchema.safeParse(req.body)
+
+  if (!parsed.success) {
+    res.status(400).json({ success: false, message: parsed.error.flatten() })
+    return
+  }
+
+  try {
+    const contract = await prisma.contractRequest.findUnique({ where: { id } })
+    if (!contract) {
+      res.status(404).json({ success: false, message: 'Kontrak tidak ditemukan' })
+      return
+    }
+
+    if (user.role !== 'ADMIN' && user.role !== 'SELLER') {
+      res.status(403).json({ success: false, message: 'Hanya Admin/Seller yang dapat menginput resi.' })
+      return
+    }
+
+    if (contract.escrowStatus !== 'LOCKED') {
+      res.status(400).json({ success: false, message: 'Escrow belum terkunci.' })
+      return
+    }
+
+    const updated = await prisma.contractRequest.update({
+      where: { id },
+      data: {
+        deliveryStatus: 'SHIPPED',
+        trackingNumber: parsed.data.trackingNumber,
+      },
+    })
+
+    res.json({ success: true, data: updated })
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error?.message || 'Gagal menginput resi.' })
+  }
+}
+
+export const releaseEscrow = async (req: Request, res: Response): Promise<void> => {
+  const { id } = req.params as { id: string }
+  const user = (req as any).user
+  const parsed = escrowReleaseSchema.safeParse(req.body || {})
+
+  if (!parsed.success) {
+    res.status(400).json({ success: false, message: parsed.error.flatten() })
+    return
+  }
+
+  try {
+    const contract = await prisma.contractRequest.findUnique({ where: { id }, include: { user: true } })
+    if (!contract) {
+      res.status(404).json({ success: false, message: 'Kontrak tidak ditemukan' })
+      return
+    }
+
+    if (contract.userId !== user.id && user.role !== 'ADMIN') {
+      res.status(403).json({ success: false, message: 'Akses ditolak' })
+      return
+    }
+
+    if (contract.escrowStatus !== 'LOCKED') {
+      res.status(400).json({ success: false, message: 'Escrow belum terkunci' })
+      return
+    }
+
+    // Only allow release after shipped
+    if (contract.deliveryStatus !== 'SHIPPED' && contract.deliveryStatus !== 'DELIVERED') {
+      res.status(400).json({ success: false, message: 'Pengiriman belum diproses' })
+      return
+    }
+
+    const updated = await prisma.contractRequest.update({
+      where: { id },
+      data: {
+        escrowStatus: 'RELEASED',
+        escrowReleasedAt: safeNow(),
+        bastVerifiedAt: parsed.data.bastVerifiedAt ? new Date(parsed.data.bastVerifiedAt) : safeNow(),
+        deliveryStatus: 'DELIVERED',
+      },
+    })
+
+    res.json({ success: true, data: updated })
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error?.message || 'Gagal mencairkan escrow.' })
   }
 }
 
